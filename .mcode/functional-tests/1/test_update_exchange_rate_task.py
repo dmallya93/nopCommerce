@@ -2,7 +2,7 @@
 Functional tests for UpdateExchangeRateTask (nopCommerce modernization milestone).
 
 These tests invoke the .NET test suite via dotnet CLI and verify all 11 NUnit tests
-(7 unit + 3 integration + 1 helper class) pass. The tests are tagged
+(8 unit + 3 integration) pass. The tests are tagged
 [Category("UpdateExchangeRateTask")] in the C# test file at:
   src/Tests/Nop.Tests/Nop.Services.Tests/Directory/UpdateExchangeRateTaskTests.cs
 """

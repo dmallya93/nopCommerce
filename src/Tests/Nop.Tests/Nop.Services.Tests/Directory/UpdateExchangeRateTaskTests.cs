@@ -1,6 +1,5 @@
 using AwesomeAssertions;
 using Moq;
-using Nop.Core;
 using Nop.Core.Domain.Directory;
 using Nop.Core.Infrastructure;
 using Nop.Services.Configuration;

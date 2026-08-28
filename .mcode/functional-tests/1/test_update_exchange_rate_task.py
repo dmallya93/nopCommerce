@@ -38,15 +38,19 @@ def run_dotnet_test(extra_args=None):
     )
 
 
+@pytest.fixture(scope="module")
+def _module_run_result():
+    """Run dotnet test exactly once for the entire module and share the result."""
+    return run_dotnet_test()
+
+
 class TestUpdateExchangeRateTaskUnitTests:
     """Unit tests (Moq-based) for UpdateExchangeRateTask."""
 
     @pytest.fixture(autouse=True, scope="class")
-    def run_result(self, request):
-        """Run the dotnet test suite once per class and store result."""
-        result = run_dotnet_test()
-        request.cls._result = result
-        request.cls._output = result.stdout + result.stderr
+    def run_result(self, request, _module_run_result):
+        """Bind the shared module-level dotnet test result to this class."""
+        request.cls._output = _module_run_result.stdout + _module_run_result.stderr
 
     def test_auto_update_disabled_returns_immediately(self):
         """When AutoUpdateEnabled=false, task returns without calling ICurrencyService."""
@@ -85,11 +89,9 @@ class TestUpdateExchangeRateTaskIntegrationTests:
     """Integration tests (real DI + SQLite) for UpdateExchangeRateTask."""
 
     @pytest.fixture(autouse=True, scope="class")
-    def run_result(self, request):
-        """Run the dotnet test suite once per class and store result."""
-        result = run_dotnet_test()
-        request.cls._result = result
-        request.cls._output = result.stdout + result.stderr
+    def run_result(self, request, _module_run_result):
+        """Bind the shared module-level dotnet test result to this class."""
+        request.cls._output = _module_run_result.stdout + _module_run_result.stderr
 
     def test_integration_auto_update_disabled(self):
         """Integration: AutoUpdateEnabled=false causes immediate return without DB access."""
@@ -108,10 +110,9 @@ class TestSuiteOverall:
     """Overall suite health check."""
 
     @pytest.fixture(autouse=True, scope="class")
-    def run_result(self, request):
-        result = run_dotnet_test()
-        request.cls._result = result
-        request.cls._output = result.stdout + result.stderr
+    def run_result(self, request, _module_run_result):
+        request.cls._result = _module_run_result
+        request.cls._output = _module_run_result.stdout + _module_run_result.stderr
 
     def test_suite_passed(self):
         """All UpdateExchangeRateTask tests must pass (individual tests verified by name above)."""

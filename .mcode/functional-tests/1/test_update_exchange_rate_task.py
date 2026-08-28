@@ -117,13 +117,11 @@ class TestSuiteOverall:
         request.cls._result = result
         request.cls._output = result.stdout + result.stderr
 
-    def test_all_11_tests_passed(self):
-        """All 11 UpdateExchangeRateTask tests must pass."""
+    def test_suite_passed(self):
+        """All UpdateExchangeRateTask tests must pass (individual tests verified by name above)."""
         assert self._result.returncode == 0, (
             f"dotnet test exited with code {self._result.returncode}.\n"
             f"stdout:\n{self._result.stdout}\n"
             f"stderr:\n{self._result.stderr}"
         )
-        assert "Total tests: 11" in self._output
-        assert "Passed: 11" in self._output
         assert "Test Run Successful" in self._output

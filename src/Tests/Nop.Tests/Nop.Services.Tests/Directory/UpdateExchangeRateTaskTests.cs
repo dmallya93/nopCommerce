@@ -1,7 +1,11 @@
 using AwesomeAssertions;
 using Moq;
+using Nop.Core;
 using Nop.Core.Domain.Directory;
+using Nop.Core.Infrastructure;
+using Nop.Services.Configuration;
 using Nop.Services.Directory;
+using Nop.Services.Plugins;
 using NUnit.Framework;
 
 namespace Nop.Tests.Nop.Services.Tests.Directory;
@@ -286,37 +290,72 @@ public class UpdateExchangeRateTaskTests
 }
 
 /// <summary>
+/// Exchange rate provider test double that returns a configurable list of rates.
+/// Used in end-to-end integration tests to inject known exchange rates through the
+/// real plugin system and CurrencyService stack.
+///
+/// Design Decision 3 (approach 2): a separate test double class in this file that
+/// always returns a fixed set of rates configured via the static <see cref="Rates"/>
+/// property, registered temporarily for each integration test that needs real rate updates.
+/// </summary>
+public class TestExchangeRateProviderWithRates : BasePlugin, IExchangeRateProvider
+{
+    /// <summary>
+    /// Configurable rates returned to callers. Set before the test, clear after.
+    /// </summary>
+    public static IList<ExchangeRate> Rates { get; set; } = new List<ExchangeRate>();
+
+    public Task<IList<ExchangeRate>> GetCurrencyLiveRatesAsync(string exchangeRateCurrencyCode)
+    {
+        return Task.FromResult(Rates);
+    }
+}
+
+/// <summary>
 /// Integration tests for <see cref="UpdateExchangeRateTask"/> using the real DI container
-/// and SQLite in-memory database. Only tests the minimal integration scenario to avoid
-/// shared state mutation (Milestone Design Decision 3, approach 3).
+/// and SQLite in-memory database (Milestone Design Decision 1, approach 3 — split strategy).
 /// </summary>
 [TestFixture]
 [Category("UpdateExchangeRateTask")]
+[NonParallelizable]
 public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
 {
+    private const string WithRatesSystemName = "CurrencyExchange.TestProviderWithRates";
     private ICurrencyService _currencyService;
 
     [OneTimeSetUp]
     public void SetUp()
     {
         _currencyService = GetService<ICurrencyService>();
+
+        // Register TestExchangeRateProviderWithRates alongside existing test plugins.
+        // IPluginsInfo.PluginDescriptors is a mutable IList, so we can add to it.
+        var pluginsInfo = Singleton<IPluginsInfo>.Instance;
+        if (pluginsInfo.PluginDescriptors.All(p => p.pluginDescriptor.SystemName != WithRatesSystemName))
+        {
+            pluginsInfo.PluginDescriptors.Add((new PluginDescriptor
+            {
+                PluginType = typeof(TestExchangeRateProviderWithRates),
+                SystemName = WithRatesSystemName,
+                FriendlyName = "Test exchange rate provider with configurable rates",
+                Installed = true,
+                ReferencedAssembly = typeof(TestExchangeRateProviderWithRates).Assembly
+            }, true));
+        }
     }
 
     /// <summary>
-    /// Integration test: when AutoUpdateEnabled=false, the real task resolves from the DI container
-    /// and returns immediately without calling CurrencyService methods that touch the database.
+    /// Integration test: when AutoUpdateEnabled=false, the task returns immediately
+    /// without touching the database.
     /// Legacy parity: same early-exit behavior existed in 3.90.
     /// </summary>
     [Test]
     public async Task ExecuteAsync_Integration_WhenAutoUpdateDisabled_ShouldReturnImmediately_LegacyParityVerified()
     {
         var settings = new CurrencySettings { AutoUpdateEnabled = false };
-
-        // Use a Moq'd ICurrencyService to detect any unexpected calls
         var currencyServiceMock = new Mock<ICurrencyService>(MockBehavior.Strict);
 
         var task = new UpdateExchangeRateTask(settings, currencyServiceMock.Object);
-
         await task.ExecuteAsync();
 
         currencyServiceMock.VerifyNoOtherCalls();
@@ -324,7 +363,7 @@ public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
 
     /// <summary>
     /// Integration test: confirms the real UpdateExchangeRateTask resolves correctly with
-    /// the full DI container. The TestExchangeRateProvider returns an empty rate list,
+    /// the full DI container. The standard TestExchangeRateProvider returns an empty list,
     /// so no currencies are mutated — safe against shared SQLite state pollution.
     /// Legacy parity: task with no rates from provider performs no database updates.
     /// </summary>
@@ -334,11 +373,82 @@ public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
         var settings = GetService<CurrencySettings>();
         settings.AutoUpdateEnabled = true;
 
-        // The TestExchangeRateProvider (registered in ServiceTest.InitPlugins) returns an empty list.
-        // This means no currencies will be updated, keeping the shared SQLite database unmodified.
         var task = new UpdateExchangeRateTask(settings, _currencyService);
-
-        // Should complete without throwing — empty provider result is a no-op
         await task.ExecuteAsync();
+    }
+
+    /// <summary>
+    /// End-to-end integration test using <see cref="TestExchangeRateProviderWithRates"/>.
+    /// Exercises the full stack: UpdateExchangeRateTask → real CurrencyService → plugin system →
+    /// TestExchangeRateProviderWithRates → SQLite database update.
+    ///
+    /// The active exchange rate provider setting is temporarily saved to the database so that
+    /// the DI-resolved CurrencyService picks up TestExchangeRateProviderWithRates as its
+    /// active plugin (CurrencyService resolves its own CurrencySettings from DI, not from
+    /// the settings object passed to UpdateExchangeRateTask).
+    ///
+    /// Legacy parity: end-to-end rate update behavior is functionally equivalent to 3.90.
+    /// </summary>
+    [Test]
+    public async Task ExecuteAsync_Integration_WithTestExchangeRateProviderWithRates_ShouldUpdateCurrencyInDatabase()
+    {
+        const string testCurrencyCode = "EUR";
+        const decimal testRate = 0.9501m;
+
+        var settingService = GetService<ISettingService>();
+
+        // Snapshot the current EUR record and provider setting so we can restore them after the test
+        var eurCurrency = await _currencyService.GetCurrencyByCodeAsync(testCurrencyCode);
+        eurCurrency.Should().NotBeNull("EUR must exist in the seeded test database");
+        var originalRate = eurCurrency!.Rate;
+        var originalUpdatedOn = eurCurrency.UpdatedOnUtc;
+
+        var originalSettings = GetService<CurrencySettings>();
+        var originalProviderName = originalSettings.ActiveExchangeRateProviderSystemName;
+
+        // Configure the provider with a known test rate
+        TestExchangeRateProviderWithRates.Rates = new List<ExchangeRate>
+        {
+            new() { CurrencyCode = testCurrencyCode, Rate = testRate }
+        };
+
+        // Persist the active provider name change so that CurrencyService (which resolves
+        // its own CurrencySettings from DI → ISettingService each time) picks up our provider.
+        originalSettings.ActiveExchangeRateProviderSystemName = WithRatesSystemName;
+        await settingService.SaveSettingAsync(originalSettings,
+            s => s.ActiveExchangeRateProviderSystemName);
+
+        try
+        {
+            // Resolve a fresh CurrencyService so its injected CurrencySettings reads the
+            // just-saved ActiveExchangeRateProviderSystemName from the database.
+            var freshCurrencyService = GetService<ICurrencyService>();
+            var freshSettings = GetService<CurrencySettings>();
+            freshSettings.AutoUpdateEnabled = true;
+
+            var beforeExecution = DateTime.UtcNow;
+            var task = new UpdateExchangeRateTask(freshSettings, freshCurrencyService);
+            await task.ExecuteAsync();
+
+            // Verify the rate was written to the SQLite database
+            var updated = await freshCurrencyService.GetCurrencyByCodeAsync(testCurrencyCode);
+            updated.Should().NotBeNull();
+            updated!.Rate.Should().Be(testRate);
+            updated.UpdatedOnUtc.Should().BeOnOrAfter(beforeExecution);
+        }
+        finally
+        {
+            // Restore original EUR rate
+            eurCurrency.Rate = originalRate;
+            eurCurrency.UpdatedOnUtc = originalUpdatedOn;
+            await _currencyService.UpdateCurrencyAsync(eurCurrency);
+
+            // Restore original active provider setting
+            originalSettings.ActiveExchangeRateProviderSystemName = originalProviderName;
+            await settingService.SaveSettingAsync(originalSettings,
+                s => s.ActiveExchangeRateProviderSystemName);
+
+            TestExchangeRateProviderWithRates.Rates = new List<ExchangeRate>();
+        }
     }
 }

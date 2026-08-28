@@ -9,7 +9,6 @@ These tests invoke the .NET test suite via dotnet CLI and verify all 11 NUnit te
 
 import os
 import subprocess
-import time
 import pytest
 
 WORKSPACE_DIR = os.path.join(os.environ['WORKSPACE_DIR'], 'nopCommerce')
@@ -30,16 +29,13 @@ def run_dotnet_test(extra_args=None):
     if extra_args:
         cmd.extend(extra_args)
 
-    start = time.time()
-    result = subprocess.run(
+    return subprocess.run(
         cmd,
         cwd=WORKSPACE_DIR,
         capture_output=True,
         text=True,
         timeout=300,
     )
-    result.duration_ms = (time.time() - start) * 1000
-    return result
 
 
 class TestUpdateExchangeRateTaskUnitTests:

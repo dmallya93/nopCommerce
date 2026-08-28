@@ -7,11 +7,12 @@ These tests invoke the .NET test suite via dotnet CLI and verify all 11 NUnit te
   src/Tests/Nop.Tests/Nop.Services.Tests/Directory/UpdateExchangeRateTaskTests.cs
 """
 
+import os
 import subprocess
 import time
 import pytest
 
-WORKSPACE_DIR = r"C:\Users\ContainerAdministrator\.local\share\modelcode\workspace\jobs\ef3585f1-8a23-488f-a985-81df006fbb8b\workspace\nopCommerce"
+WORKSPACE_DIR = os.path.join(os.environ['WORKSPACE_DIR'], 'nopCommerce')
 TEST_PROJECT = r"src\Tests\Nop.Tests\Nop.Tests.csproj"
 TEST_FILTER = "Category=UpdateExchangeRateTask"
 CONFIGURATION = "Release"

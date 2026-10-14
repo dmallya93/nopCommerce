@@ -21,10 +21,10 @@ public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
     private ICurrencyService _currencyService;
     private ISettingService _settingService;
 
+    private static readonly string[] SnapshotCurrencyCodes = { "USD", "RUB", "EUR" };
+
     private CurrencySettings _originalSettingsSnapshot;
-    private Currency _originalUsdSnapshot;
-    private Currency _originalRubSnapshot;
-    private Currency _originalEurSnapshot;
+    private Dictionary<string, Currency> _originalCurrencySnapshots;
 
     [OneTimeSetUp]
     public void OneTimeSetUp()
@@ -49,9 +49,9 @@ public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
             DisplayCurrencySymbolInCurrencySelector = currentSettings.DisplayCurrencySymbolInCurrencySelector
         };
 
-        _originalUsdSnapshot = await SnapshotAsync("USD");
-        _originalRubSnapshot = await SnapshotAsync("RUB");
-        _originalEurSnapshot = await SnapshotAsync("EUR");
+        _originalCurrencySnapshots = new Dictionary<string, Currency>();
+        foreach (var currencyCode in SnapshotCurrencyCodes)
+            _originalCurrencySnapshots[currencyCode] = await SnapshotAsync(currencyCode);
     }
 
     [TearDown]
@@ -64,9 +64,8 @@ public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
         await SaveCurrencySettingsAsync(_originalSettingsSnapshot);
 
         //restore any currency rows this test may have modified
-        await RestoreAsync(_originalUsdSnapshot);
-        await RestoreAsync(_originalRubSnapshot);
-        await RestoreAsync(_originalEurSnapshot);
+        foreach (var snapshot in _originalCurrencySnapshots.Values)
+            await RestoreAsync(snapshot);
     }
 
     /// <summary>

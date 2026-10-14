@@ -39,6 +39,9 @@ public class UpdateExchangeRateTaskTests
     private static Currency Currency(string code, decimal rate = 1m) =>
         new() { CurrencyCode = code, Rate = rate };
 
+    private void SetupLiveRates(IList<ExchangeRate> rates) =>
+        _currencyServiceMock.Setup(s => s.GetCurrencyLiveRatesAsync(null)).ReturnsAsync(rates);
+
     // Contract #1: AutoUpdateEnabled == false short-circuits the entire task — no provider call, no currency reads, no writes.
     [Test]
     public async Task AutoUpdateDisabled_ShouldNotCallAnyCurrencyServiceMethod()
@@ -63,7 +66,7 @@ public class UpdateExchangeRateTaskTests
             Rate("RUB", 90m),
             Rate("GBP", 0.85m)
         };
-        _currencyServiceMock.Setup(s => s.GetCurrencyLiveRatesAsync(null)).ReturnsAsync((IList<ExchangeRate>)rates);
+        SetupLiveRates(rates);
 
         foreach (var rate in rates)
         {
@@ -90,7 +93,7 @@ public class UpdateExchangeRateTaskTests
             Rate("USD", 1.1m),
             Rate("ZZZ", 123m) // unmatched/unknown code
         };
-        _currencyServiceMock.Setup(s => s.GetCurrencyLiveRatesAsync(null)).ReturnsAsync((IList<ExchangeRate>)rates);
+        SetupLiveRates(rates);
         _currencyServiceMock.Setup(s => s.GetCurrencyByCodeAsync("USD")).ReturnsAsync(Currency("USD"));
         _currencyServiceMock.Setup(s => s.GetCurrencyByCodeAsync("ZZZ")).ReturnsAsync((Currency)null);
 
@@ -108,7 +111,7 @@ public class UpdateExchangeRateTaskTests
     public async Task ExecuteAsync_ShouldPassCurrencyCodeVerbatimToLookup()
     {
         var rates = new List<ExchangeRate> { Rate("usd", 1.1m) };
-        _currencyServiceMock.Setup(s => s.GetCurrencyLiveRatesAsync(null)).ReturnsAsync((IList<ExchangeRate>)rates);
+        SetupLiveRates(rates);
         _currencyServiceMock.Setup(s => s.GetCurrencyByCodeAsync(It.IsAny<string>())).ReturnsAsync(Currency("USD"));
 
         var task = CreateTask();
@@ -125,7 +128,7 @@ public class UpdateExchangeRateTaskTests
         existingCurrency.UpdatedOnUtc = DateTime.UtcNow.AddDays(-30);
 
         var rates = new List<ExchangeRate> { Rate("USD", 1.2345m) };
-        _currencyServiceMock.Setup(s => s.GetCurrencyLiveRatesAsync(null)).ReturnsAsync((IList<ExchangeRate>)rates);
+        SetupLiveRates(rates);
         _currencyServiceMock.Setup(s => s.GetCurrencyByCodeAsync("USD")).ReturnsAsync(existingCurrency);
 
         Currency persisted = null;
@@ -154,7 +157,7 @@ public class UpdateExchangeRateTaskTests
             Rate("RUB", 90m),
             Rate("GBP", 0.85m)
         };
-        _currencyServiceMock.Setup(s => s.GetCurrencyLiveRatesAsync(null)).ReturnsAsync((IList<ExchangeRate>)rates);
+        SetupLiveRates(rates);
 
         var persistedCurrencies = new List<Currency>();
         foreach (var rate in rates)

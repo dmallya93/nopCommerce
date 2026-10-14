@@ -145,9 +145,11 @@ public class UpdateExchangeRateTaskIntegrationTests : ServiceTest
 
         var task = await CreateTaskAsync(autoUpdateEnabled: true);
 
-        var before = DateTime.UtcNow;
+        //the DB round-trip truncates UpdatedOnUtc to millisecond precision, so allow a small
+        //tolerance either side rather than comparing against sub-millisecond-precision timestamps
+        var before = DateTime.UtcNow.AddMilliseconds(-5);
         await task.ExecuteAsync();
-        var after = DateTime.UtcNow;
+        var after = DateTime.UtcNow.AddMilliseconds(5);
 
         var usd = await _currencyService.GetCurrencyByCodeAsync("USD");
         usd.Should().NotBeNull();

@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using AwesomeAssertions;
+using Microsoft.Data.Sqlite;
 using Nop.Core;
 using Nop.Core.Domain.Catalog;
 using Nop.Core.Domain.Gdpr;
@@ -359,8 +360,18 @@ public class NopDataProviderTests : BaseNopTest
         switch (type)
         {
             case DataProviderType.Unknown:
-                connStr.Should()
-                    .Be(@$"Data Source={CommonHelper.DefaultFileProvider.MapPath($"~/App_Data/")}test_db.sqlite;Mode=ReadWrite;Cache=Shared;Password=passwd");
+                // Built via SqliteConnectionStringBuilder (mirroring the provider's own
+                // construction) rather than raw string interpolation, so the expectation
+                // stays correct regardless of whether the repo's absolute path contains
+                // characters (e.g. a space) that SqliteConnectionStringBuilder quotes.
+                var expectedUnknownConnStr = new SqliteConnectionStringBuilder
+                {
+                    DataSource = CommonHelper.DefaultFileProvider.MapPath("~/App_Data/test_db.sqlite"),
+                    Password = "passwd",
+                    Mode = SqliteOpenMode.ReadWrite,
+                    Cache = SqliteCacheMode.Shared
+                }.ConnectionString;
+                connStr.Should().Be(expectedUnknownConnStr);
                 break;
             case DataProviderType.SqlServer:
                 connStr.Should()

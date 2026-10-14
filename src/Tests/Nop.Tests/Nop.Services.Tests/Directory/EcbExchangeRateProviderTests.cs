@@ -33,6 +33,16 @@ public class EcbExchangeRateProviderTests
   </Cube>
 </gesmes:Envelope>";
 
+    private const string EcbXmlWithInvalidTimeAttribute = @"<?xml version=""1.0"" encoding=""UTF-8""?>
+<gesmes:Envelope xmlns:gesmes=""http://www.gesmes.org/xml/2002-08-01"" xmlns=""http://www.ecb.int/vocabulary/2002-08-01/eurofxref"">
+  <gesmes:subject>Reference rates</gesmes:subject>
+  <Cube>
+    <Cube time=""not-a-date"">
+      <Cube currency=""USD"" rate=""1.1000""/>
+    </Cube>
+  </Cube>
+</gesmes:Envelope>";
+
     private EcbExchangeRateSettings _settings;
     private Mock<IHttpClientFactory> _httpClientFactoryMock;
     private Mock<ILocalizationService> _localizationServiceMock;
@@ -120,6 +130,36 @@ public class EcbExchangeRateProviderTests
 
         var gbp = result.Single(r => r.CurrencyCode == "GBP");
         gbp.Rate.Should().Be(Math.Round(0.8500m / 1.1000m, 4));
+    }
+
+    // Contract #8: the ECB feed's <Cube time="yyyy-MM-dd"> attribute is parsed (DateTime.TryParseExact)
+    // and stamped onto every rate returned for that fetch, rather than being ignored or re-stamped per rate.
+    [Test]
+    public async Task GetCurrencyLiveRatesAsync_ShouldParseFeedDateAndStampItOnEachRate()
+    {
+        var provider = CreateProvider(new StaticResponseHandler(HttpStatusCode.OK, ValidEcbXml));
+
+        var result = await provider.GetCurrencyLiveRatesAsync("eur");
+
+        var expectedDate = DateTime.ParseExact("2026-10-13", "yyyy-MM-dd", null);
+        result.Single(r => r.CurrencyCode == "USD").UpdatedOn.Should().Be(expectedDate);
+        result.Single(r => r.CurrencyCode == "RUB").UpdatedOn.Should().Be(expectedDate);
+        result.Single(r => r.CurrencyCode == "GBP").UpdatedOn.Should().Be(expectedDate);
+    }
+
+    // Contract #8 (fallback half): when the feed's time attribute is missing or fails to parse as
+    // "yyyy-MM-dd", the provider falls back to DateTime.UtcNow rather than throwing or leaving it unset.
+    [Test]
+    public async Task GetCurrencyLiveRatesAsync_ShouldFallBackToUtcNow_WhenFeedDateIsUnparseable()
+    {
+        var provider = CreateProvider(new StaticResponseHandler(HttpStatusCode.OK, EcbXmlWithInvalidTimeAttribute));
+
+        var before = DateTime.UtcNow.AddSeconds(-5);
+        var result = await provider.GetCurrencyLiveRatesAsync("eur");
+        var after = DateTime.UtcNow.AddSeconds(5);
+
+        var usd = result.Single(r => r.CurrencyCode == "USD");
+        usd.UpdatedOn.Should().BeOnOrAfter(before).And.BeOnOrBefore(after);
     }
 
     // Contract #8/#9: an unmatched (unsupported-by-ECB) currency code throws NopException rather than
